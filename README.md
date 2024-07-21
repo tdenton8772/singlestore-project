@@ -37,7 +37,7 @@ format JSON;
 
 `start pipeline maritime_pipeline;`
 
-`SHOW PIPELINEs;``
+`SHOW PIPELINEs;`
 
 `select * from maritime_data;`
 
