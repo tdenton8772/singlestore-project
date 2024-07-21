@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ship Data Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/jquery/dist/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+</head>
+<body>
+    <div id="map" style="width: 100%; height: 600px;"></div>
+    <div>
+        <p>Maritime Data Count: <span id="maritime-count">Loading...</span></p>
+        <p>Ship Routes Count: <span id="ship-routes-count">Loading...</span></p>
+        <label for="mmsi-select">Select MMSI:</label>
+        <select id="mmsi-select" style="width: 300px;">
+            <option></option>
+        </select>
+    </div>
+    <div>
+        <h3>Long Routes MMSIs</h3>
+        <ul id="long-mmsi-list">Loading...</ul>
+    </div>
+<!--     <div>
+        <h3>Anomalous Routes MMSIs</h3>
+        <ul id="anomalous-mmsi-list">Loading...</ul>
+    </div> -->
+    <script>
+        var map = L.map('map').setView([27.14117000, -90.33051000], 8);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        var polylineLayerGroup = L.layerGroup().addTo(map);
+        var selectedMMSI = null;  // Variable to store the selected MMSI
+
+        function fetchPolylines(mmsi) {
+            var url = '/data';
+            if (mmsi) {
+                url += '?mmsi=' + mmsi;
+            }
+            $.ajax({
+                url: url,
+                method: 'GET',
+                success: function(data) {
+                    polylineLayerGroup.clearLayers();
+                    data.forEach(function(polyline) {
+                        L.polyline(polyline).addTo(polylineLayerGroup);
+                    });
+                },
+                error: function() {
+                    console.error('Failed to fetch polylines.');
+                }
+            });
+        }
+
+        function fetchMetadata() {
+            $.ajax({
+                url: '/metadata',
+                method: 'GET',
+                success: function(data) {
+                    $('#maritime-count').text(data.maritime_count);
+                    $('#ship-routes-count').text(data.ship_routes_count);
+                    var mmsiSelect = $('#mmsi-select');
+                    mmsiSelect.empty();
+                    mmsiSelect.append('<option></option>');
+                    data.mmsi_list.forEach(function(mmsi) {
+                        mmsiSelect.append('<option value="' + mmsi + '">' + mmsi + '</option>');
+                    });
+                    mmsiSelect.val(selectedMMSI).trigger('change');  // Restore the selected MMSI
+                    mmsiSelect.select2({
+                        placeholder: 'Select an MMSI',
+                        allowClear: true
+                    });
+                },
+                error: function() {
+                    console.error('Failed to fetch metadata.');
+                }
+            });
+        }
+
+        function fetchLongMMSIs() {
+            $.ajax({
+                url: '/long_mmsis',
+                method: 'GET',
+                success: function(data) {
+                    var longMMSIList = $('#long-mmsi-list');
+                    longMMSIList.empty();
+                    if (data.length === 0) {
+                        longMMSIList.append('<li>No long routes found.</li>');
+                    } else {
+                        data.forEach(function(mmsi) {
+                            longMMSIList.append('<li><a href="#" class="mmsi-link" data-mmsi="' + mmsi + '">' + mmsi + '</a></li>');
+                        });
+                    }
+                },
+                error: function() {
+                    console.error('Failed to fetch long MMSIs.');
+                    $('#long-mmsi-list').empty().append('<li>Error loading long routes.</li>');
+                }
+            });
+        }
+
+        // function fetchAnomalousMMSIs() {
+        //     $.ajax({
+        //         url: '/anomalous_mmsis',
+        //         method: 'GET',
+        //         success: function(data) {
+        //             var anomalousMMSIList = $('#anomalous-mmsi-list');
+        //             anomalousMMSIList.empty();
+        //             if (data.length === 0) {
+        //                 anomalousMMSIList.append('<li>No anomalous routes found.</li>');
+        //             } else {
+        //                 data.forEach(function(mmsi) {
+        //                     anomalousMMSIList.append('<li><a href="#" class="mmsi-link" data-mmsi="' + mmsi + '">' + mmsi + '</a></li>');
+        //                 });
+        //             }
+        //         },
+        //         error: function() {
+        //             console.error('Failed to fetch anomalous MMSIs.');
+        //             $('#anomalous-mmsi-list').empty().append('<li>Error loading anomalous routes.</li>');
+        //         }
+        //     });
+        // }
+
+        // Event listener for MMSI selection
+        $('#mmsi-select').on('change', function() {
+            selectedMMSI = $(this).val();  // Store the selected MMSI
+            fetchPolylines(selectedMMSI);
+        });
+
+        // Event listener for clickable MMSI links
+        $(document).on('click', '.mmsi-link', function(event) {
+            event.preventDefault();
+            selectedMMSI = $(this).data('mmsi');  // Get the MMSI from the link
+            fetchPolylines(selectedMMSI);
+            $('#mmsi-select').val(selectedMMSI).trigger('change');  // Update the select box
+        });
+
+        fetchPolylines();
+        fetchMetadata();
+        fetchLongMMSIs();  // Initial fetch
+        // fetchAnomalousMMSIs();  // Initial fetch
+        setInterval(function() {
+            fetchPolylines(selectedMMSI);  // Use the stored MMSI during refresh
+        }, 5000);  // Refresh data every 10 seconds
+        setInterval(fetchMetadata, 1000);  // Refresh metadata every 10 seconds
+        setInterval(fetchLongMMSIs, 1000);  // Refresh long MMSIs every 10 seconds
+        // setInterval(fetchAnomalousMMSIs, 10000);  // Refresh anomalous MMSIs every 10 seconds
+    </script>
+</body>
+</html>
+
