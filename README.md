@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS maritime_data (
     SOG DOUBLE,
     COG DOUBLE,
     Heading DOUBLE,
-    GeoPoint GEOGRAPHYPOINT
+    GeoPoint GEOGRAPHYPOINT,
+    PRIMARY KEY(MMSI, BaseDateTime),
+    SHARD KEY(MMSI),
+    SORT KEY(MMSI, BaseDateTime)
 );
 ```
 
@@ -30,8 +33,8 @@ CREATE TABLE IF NOT EXISTS maritime_data (
 
 ```sql
 CREATE PIPELINE maritime_pipeline
-AS LOAD DATA KAFKA 'kafka:29092/maritimedata'
-INTO TABLE maritime_data
+AS LOAD DATA KAFKA 'kafka:29092/maritimedata' SKIP DUPLICATE KEY ERRORS
+INTO TABLE maritime_data 
 format JSON;
 ```
 
@@ -45,8 +48,9 @@ format JSON;
 CREATE ROWSTORE TABLE IF NOT EXISTS ship_routes (
     MMSI BIGINT,
     month DATE,
-    GeoLine VARCHAR(2048),
-    PRIMARY KEY (MMSI, month)
+    GeoLine LONGTEXT,
+    PRIMARY KEY (MMSI, month),
+    SHARD KEY(MMSI)
 );
 ```
 

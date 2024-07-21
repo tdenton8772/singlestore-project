@@ -2,6 +2,9 @@ import fastparquet
 import json
 import datetime
 from kafka import KafkaProducer, KafkaAdminClient
+from subprocess import call
+
+call(['python', 'delete_data.py'])
 
 def list_kafka_topics(bootstrap_servers):
     admin_client = KafkaAdminClient(bootstrap_servers=bootstrap_servers)
