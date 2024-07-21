@@ -6,9 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/jquery/dist/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 </head>
 <body>
     <div id="map" style="width: 100%; height: 600px;"></div>
@@ -24,10 +26,10 @@
         <h3>Long Routes MMSIs</h3>
         <ul id="long-mmsi-list">Loading...</ul>
     </div>
-<!--     <div>
-        <h3>Anomalous Routes MMSIs</h3>
-        <ul id="anomalous-mmsi-list">Loading...</ul>
-    </div> -->
+    <div>
+        <h3>Selected MMSIs</h3>
+        <ul id="selected-mmsi-list">No MMSIs selected.</ul>
+    </div>
     <script>
         var map = L.map('map').setView([27.14117000, -90.33051000], 8);
 
@@ -39,22 +41,55 @@
         var polylineLayerGroup = L.layerGroup().addTo(map);
         var selectedMMSI = null;  // Variable to store the selected MMSI
 
-        function fetchPolylines(mmsi) {
-            var url = '/data';
-            if (mmsi) {
-                url += '?mmsi=' + mmsi;
+        // Initialize the drawing tools
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        var drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: drawnItems
+            },
+            draw: {
+                polygon: true,
+                polyline: false,
+                circle: false,
+                rectangle: false,
+                marker: false
             }
+        });
+        map.addControl(drawControl);
+
+        function drawPolylines(data) {
+            polylineLayerGroup.clearLayers();
+            data.forEach(function(item) {
+                var polyline = L.polyline(item.geoline);
+                polylineLayerGroup.addLayer(polyline);
+            });
+        }
+
+        function fetchPolylines() {
             $.ajax({
-                url: url,
+                url: '/data',
                 method: 'GET',
                 success: function(data) {
-                    polylineLayerGroup.clearLayers();
-                    data.forEach(function(polyline) {
-                        L.polyline(polyline).addTo(polylineLayerGroup);
-                    });
+                    drawPolylines(data);
                 },
                 error: function() {
                     console.error('Failed to fetch polylines.');
+                }
+            });
+        }
+
+        function fetchPolylinesForMMSI(mmsi) {
+            $.ajax({
+                url: '/data',
+                method: 'GET',
+                data: { mmsi: mmsi },
+                success: function(data) {
+                    drawPolylines(data);  // Draw the polylines for the selected MMSI
+                },
+                error: function() {
+                    console.error('Failed to fetch polylines for MMSI.');
                 }
             });
         }
@@ -106,53 +141,69 @@
             });
         }
 
-        // function fetchAnomalousMMSIs() {
-        //     $.ajax({
-        //         url: '/anomalous_mmsis',
-        //         method: 'GET',
-        //         success: function(data) {
-        //             var anomalousMMSIList = $('#anomalous-mmsi-list');
-        //             anomalousMMSIList.empty();
-        //             if (data.length === 0) {
-        //                 anomalousMMSIList.append('<li>No anomalous routes found.</li>');
-        //             } else {
-        //                 data.forEach(function(mmsi) {
-        //                     anomalousMMSIList.append('<li><a href="#" class="mmsi-link" data-mmsi="' + mmsi + '">' + mmsi + '</a></li>');
-        //                 });
-        //             }
-        //         },
-        //         error: function() {
-        //             console.error('Failed to fetch anomalous MMSIs.');
-        //             $('#anomalous-mmsi-list').empty().append('<li>Error loading anomalous routes.</li>');
-        //         }
-        //     });
-        // }
+        function handlePolygonSearch(coordinates) {
+            if (!coordinates || coordinates.length === 0) {
+                return;
+            }
+            $.ajax({
+                url: '/polygon_search',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ coordinates: coordinates }),
+                success: function(data) {
+                    if (data.length > 0) {
+                        drawPolylines(data);  // Draw the polylines for the polygon search
+
+                        // Update the selected MMSIs list
+                        var selectedMMSIList = $('#selected-mmsi-list');
+                        selectedMMSIList.empty();
+                        data.forEach(function(item) {
+                            selectedMMSIList.append('<li><a href="#" class="selected-mmsi-link" data-mmsi="' + item.mmsi + '">' + item.mmsi + '</a></li>');
+                        });
+                    }
+                },
+                error: function() {
+                    console.error('Failed to perform polygon search.');
+                }
+            });
+        }
 
         // Event listener for MMSI selection
         $('#mmsi-select').on('change', function() {
             selectedMMSI = $(this).val();  // Store the selected MMSI
-            fetchPolylines(selectedMMSI);
+            fetchPolylinesForMMSI(selectedMMSI);
         });
 
-        // Event listener for clickable MMSI links
+        // Event listener for clickable MMSI links in the long routes list
         $(document).on('click', '.mmsi-link', function(event) {
             event.preventDefault();
             selectedMMSI = $(this).data('mmsi');  // Get the MMSI from the link
-            fetchPolylines(selectedMMSI);
+            fetchPolylinesForMMSI(selectedMMSI);
             $('#mmsi-select').val(selectedMMSI).trigger('change');  // Update the select box
+        });
+
+        // Event listener for clickable MMSI links in the selected MMSIs list
+        $(document).on('click', '.selected-mmsi-link', function(event) {
+            event.preventDefault();
+            selectedMMSI = $(this).data('mmsi');  // Get the MMSI from the link
+            fetchPolylinesForMMSI(selectedMMSI);
+        });
+
+        map.on(L.Draw.Event.CREATED, function (event) {
+            var layer = event.layer;
+            drawnItems.addLayer(layer);
+            var coordinates = layer.getLatLngs()[0].map(function(latlng) {
+                return [latlng.lat, latlng.lng];
+            });
+            handlePolygonSearch(coordinates);
         });
 
         fetchPolylines();
         fetchMetadata();
         fetchLongMMSIs();  // Initial fetch
-        // fetchAnomalousMMSIs();  // Initial fetch
-        setInterval(function() {
-            fetchPolylines(selectedMMSI);  // Use the stored MMSI during refresh
-        }, 5000);  // Refresh data every 10 seconds
-        setInterval(fetchMetadata, 1000);  // Refresh metadata every 10 seconds
-        setInterval(fetchLongMMSIs, 1000);  // Refresh long MMSIs every 10 seconds
-        // setInterval(fetchAnomalousMMSIs, 10000);  // Refresh anomalous MMSIs every 10 seconds
+        setInterval(fetchPolylines, 10000);  // Refresh data every 10 seconds
+        setInterval(fetchMetadata, 10000);  // Refresh metadata every 10 seconds
+        setInterval(fetchLongMMSIs, 10000);  // Refresh long MMSIs every 10 seconds
     </script>
 </body>
 </html>
-

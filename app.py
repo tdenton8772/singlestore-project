@@ -66,12 +66,13 @@ def index():
 def data():
     mmsi = request.args.get('mmsi')
     if mmsi:
-        polyline_query = "SELECT GeoLine FROM ship_routes WHERE mmsi = %s"
+        polyline_query = "SELECT mmsi, GeoLine FROM ship_routes WHERE mmsi = %s"
         results = query_singlestore(polyline_query, (mmsi,))
     else:
-        polyline_query = "SELECT GeoLine FROM ship_routes"
+        polyline_query = "SELECT mmsi, GeoLine FROM ship_routes"
         results = query_singlestore(polyline_query)
-    polylines = [parse_linestring(row[0]) for row in results]
+
+    polylines = [{"mmsi": row[0], "geoline": parse_linestring(row[1])} for row in results]
     return jsonify(polylines)
 
 @app.route('/metadata')
@@ -88,20 +89,37 @@ def metadata():
 
 @app.route('/long_mmsis')
 def long_mmsis():
-    print("LONG MMSI")
-    long_mmsis_query = "SELECT DISTINCT mmsi FROM ship_routes WHERE GEOGRAPHY_LENGTH(GeoLine) > 100000"  # Adjust threshold as needed
+    long_mmsis_query = "SELECT DISTINCT mmsi FROM ship_routes WHERE GEOGRAPHY_LENGTH(GeoLine) > 1000000"  # Adjust threshold as needed
     results = query_singlestore(long_mmsis_query)
     long_mmsis = [row[0] for row in results] if results else []
     return jsonify(long_mmsis)
 
-@app.route('/anomalous_mmsis')
-def anomalous_mmsis():
-    # This is a placeholder for anomalous route detection logic
-    # Adjust the query to match your criteria for anomalous routes
-    anomalous_mmsis_query = "SELECT DISTINCT mmsi FROM ship_routes WHERE some_anomalous_condition"
-    results = query_singlestore(anomalous_mmsis_query)
-    anomalous_mmsis = [row[0] for row in results] if results else []
-    return jsonify(anomalous_mmsis)
+@app.route('/polygon_search', methods=['POST'])
+def polygon_search():
+    coordinates = request.json.get('coordinates')
+    if not coordinates:
+        return jsonify([])
+
+    # Convert coordinates to WKT polygon format
+    coordinates.append(coordinates[0])
+    polygon = "POLYGON(({}))".format(",".join(["{} {}".format(lng, lat) for lat, lng in coordinates]))
+
+    # Query for unique MMSIs in maritime_data within the polygon
+    mmsi_query = """
+    SELECT DISTINCT MMSI FROM maritime_data 
+    WHERE GEOGRAPHY_CONTAINS("{}", GeoPoint)
+    """.format(polygon)
+    mmsis = query_singlestore(mmsi_query)
+
+    # Query for ship routes for the MMSIs
+    if mmsis:
+        mmsi_list = [mmsi[0] for mmsi in mmsis]
+        ship_routes_query = "SELECT mmsi, GeoLine FROM ship_routes WHERE mmsi IN ({})".format(",".join(["%s"] * len(mmsi_list)))
+        ship_routes = query_singlestore(ship_routes_query, mmsi_list)
+        polylines = [{"mmsi": row[0], "geoline": parse_linestring(row[1])} for row in ship_routes]
+        return jsonify(polylines)
+    
+    return jsonify([])
 
 if __name__ == '__main__':
     # Start the background thread to call the stored procedure
